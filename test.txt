@@ -1,3 +1,0 @@
-   Compiling pccc v0.4.0 (/home/trevork/git/pccc)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
-     Running unittests src/lib.rs (target/debug/deps/pccc-5307b0aec7794f3e)
