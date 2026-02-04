@@ -79,6 +79,7 @@
 
 mod common;
 mod interleaver;
+#[cfg(feature = "cli")]
 pub mod lte;
 mod pccc;
 mod rsc;

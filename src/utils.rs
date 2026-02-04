@@ -63,17 +63,46 @@ pub fn random_bits(num_bits: usize) -> Vec<Bit> {
 ///
 /// - `bits_llr`: Log-likelihood-ratio (LLR) values at the BPSK-AWGN channel output corresponding
 ///   to the transmitted bits, with positive values indicating that `Zero` is more likely.
+///
+/// # Panics
+/// This function will panic if the float type used cannot represent the values `0.5`, `4.0`, or `10.0`.
 #[must_use]
-pub fn bpsk_awgn_channel(bits: &[Bit], es_over_n0_db: f64) -> Vec<f64> {
+pub fn bpsk_awgn_channel<F>(bits: &[Bit], es_over_n0_db: F) -> Vec<F>
+where
+    F: num_traits::Float,
+    StandardNormal: rand_distr::Distribution<F>,
+{
     let mut rng = rand::rng();
-    let es_over_n0 = 10f64.powf(0.1 * es_over_n0_db);
-    let noise_var = 0.5 / es_over_n0;
+
+    let half = F::from(0.5).unwrap_or_else(|| {
+        panic!(
+            "Float type `{}` can't hold 0.5.",
+            core::any::type_name::<F>()
+        )
+    });
+    let four = F::from(4.0).unwrap_or_else(|| {
+        panic!(
+            "Float type `{}` can't hold 4.0.",
+            core::any::type_name::<F>()
+        )
+    });
+    let ten = F::from(10.0).unwrap_or_else(|| {
+        panic!(
+            "Float type `{}` can't hold 10.0.",
+            core::any::type_name::<F>()
+        )
+    });
+
+    let es_over_n0 = ten.powf(es_over_n0_db / ten);
+
+    let noise_var = half / es_over_n0;
+
     bits.iter()
         .map(|b| match b {
-            Bit::Zero => 1f64,
-            Bit::One => -1f64,
+            Bit::Zero => F::one(),
+            Bit::One => -F::one(),
         })
-        .map(|x| 4.0 * es_over_n0 * (x + noise_var.sqrt() * rng.sample::<f64, _>(StandardNormal)))
+        .map(|x| four * es_over_n0 * (x + noise_var.sqrt() * rng.sample::<F, _>(StandardNormal)))
         .collect()
 }
 

@@ -65,17 +65,14 @@ impl Interleaver {
     ///
     /// - `length`: Length of input/output sequence.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if `length` is `0`.
-    ///
     /// # Examples
     ///
     /// ```
+    /// use core::num::NonZeroUsize;
     /// use pccc::Interleaver;
     ///
-    /// let length = 8;
-    /// let interleaver = Interleaver::random(length)?;
+    /// let length = NonZeroUsize::new(8).unwrap();
+    /// let interleaver = Interleaver::random(length);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]

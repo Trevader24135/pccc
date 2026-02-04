@@ -9,12 +9,12 @@ The package comprises a library crate and a binary crate. Refer to the [API docu
 
 ## Binary crate usage
 
-The included binary crate can be used to run a Monte Carlo simulation that evaluates the error rate performance over a BPSK-AWGN channel of the rate-1/3 PCCC used in LTE. The parameters for such a simulation are specified on the command line, and the results from it are saved to a JSON file.
+The included binary crate can be used to run a Monte Carlo simulation that evaluates the error rate performance over a BPSK-AWGN channel of the rate-1/3 PCCC used in LTE. The parameters for such a simulation are specified on the command line, and the results from it are saved to a JSON file. Building the binary requires the "cli" feature flag to be enabled, which is disabled by default.
 
-Execute `cargo run -- -h` for help on the command-line interface.
+Execute `cargo run -F cli -- -h` for help on the command-line interface.
 
 ```console
-$ cargo run -- -h
+$ cargo run -F cli -- -h
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
      Running `target/debug/pccc -h`
 Evaluates the performance of the rate-1/3 LTE PCCC over a BPSK-AWGN channel
@@ -37,10 +37,10 @@ Options:
   -V, --version                     Print version
 ```
 
-Execute `cargo run --release -- [OPTIONS]` to run a simulation with desired parameters. For example, the following command evaluates the bit error rate (BER) and block error rate (BLER) of the LTE PCCC for a block size of 6144 bits, with Log-MAP decoding, 8 turbo iterations, and the signal-to-noise ratio (Es/N0) ranging from -4.95 dB to -4.35 dB in 0.1 dB steps. Results are saved to a file named _results6144.json_. (Some parameters are left at their default values.)
+Execute `cargo run -F cli --release -- [OPTIONS]` to run a simulation with desired parameters. For example, the following command evaluates the bit error rate (BER) and block error rate (BLER) of the LTE PCCC for a block size of 6144 bits, with Log-MAP decoding, 8 turbo iterations, and the signal-to-noise ratio (Es/N0) ranging from -4.95 dB to -4.35 dB in 0.1 dB steps. Results are saved to a file named _results6144.json_. (Some parameters are left at their default values.)
 
 ```console
-cargo run --release -- -i 6144 -a LogMAP -t 8 -r -4.95 -p 0.1 -s 7 -f results6144.json
+cargo run -F cli --release -- -i 6144 -a LogMAP -t 8 -r -4.95 -p 0.1 -s 7 -f results6144.json
 ```
 
 For reference, the BER and BLER from a simulation with the above parameters are tabulated below:

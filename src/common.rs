@@ -37,12 +37,12 @@ pub enum Error {
     InvalidInput(String),
 
     /// File read/write error
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "cli")]
     #[error("{0}")]
     FileReadWriteError(#[from] std::io::Error),
 
     /// Serde read/write error
-    #[cfg(feature = "serde")]
+    #[cfg(feature = "cli")]
     #[error("{0}")]
     SerdeReadWriteError(#[from] serde_json::Error),
 

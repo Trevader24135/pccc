@@ -14,8 +14,7 @@ categories = ["simulation", "science", "mathematics"]
 
 [features]
 default = []
-cli = ["dep:clap"]
-serde = ["dep:serde", "dep:serde_json"]
+cli = ["dep:clap", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 anyhow = "1.0.100"

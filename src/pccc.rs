@@ -4,7 +4,7 @@ use crate::{rsc, utils, Bit, Error, Interleaver};
 
 /// Enumeration of PCCC decoding algorithms
 #[derive(Clone, Eq, Hash, PartialEq, Debug, Copy)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "cli", derive(serde::Deserialize, serde::Serialize))]
 pub enum DecodingAlgo {
     /// Log-MAP decoding with given number of turbo iterations
     LogMAP(u32),
