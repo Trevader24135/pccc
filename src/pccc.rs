@@ -178,7 +178,7 @@ pub fn encoder(
 /// assert_eq!(info_bits_hat, [One, Zero, Zero, One]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub fn decoder<F: num::Float + core::fmt::Debug>(
+pub fn decoder<F: num_traits::Float>(
     code_bits_llr: &[F],
     interleaver: &Interleaver,
     code_polynomials: &[usize],
@@ -212,7 +212,7 @@ pub fn decoder<F: num::Float + core::fmt::Debug>(
 }
 
 /// Checks validity of decoder inputs.
-fn check_decoder_inputs<F: num::Float>(
+fn check_decoder_inputs<F: num_traits::Float>(
     code_bits_llr_len: usize,
     interleaver: &Interleaver,
     sm: &rsc::StateMachine<F>,
@@ -230,7 +230,7 @@ fn check_decoder_inputs<F: num::Float>(
 }
 
 /// Returns code bit LLR values to be input to top and bottom BCJR decoders.
-fn bcjr_inputs<F: num::Float>(
+fn bcjr_inputs<F: num_traits::Float>(
     code_bits_llr: &[F],
     interleaver: &Interleaver,
     sm: &rsc::StateMachine<F>,

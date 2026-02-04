@@ -88,7 +88,7 @@ pub fn bpsk_awgn_channel(bits: &[Bit], es_over_n0_db: f64) -> Vec<f64> {
 ///
 /// - `bits_hat`: Bits obtained by slicing the given symbols.
 #[must_use]
-pub fn bpsk_slicer<F: num::Float>(syms: &[F]) -> Vec<Bit> {
+pub fn bpsk_slicer<F: num_traits::Float>(syms: &[F]) -> Vec<Bit> {
     syms.iter()
         .map(|&x| {
             if x.is_sign_positive() {
