@@ -97,7 +97,7 @@ pub fn encoder(
     interleaver: &Interleaver,
     code_polynomials: &[usize],
 ) -> Result<Vec<Bit>, Error> {
-    let mut sm = rsc::StateMachine::new(code_polynomials)?;
+    let mut sm = rsc::StateMachine::<f64>::new(code_polynomials)?;
     let num_info_bits = interleaver.length;
     let num_code_bits_per_rsc = (num_info_bits + sm.memory_len) * sm.num_output_bits;
     // Top RSC encoder output
@@ -178,21 +178,21 @@ pub fn encoder(
 /// assert_eq!(info_bits_hat, [One, Zero, Zero, One]);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub fn decoder(
-    code_bits_llr: &[f64],
+pub fn decoder<F: num::Float + core::fmt::Debug>(
+    code_bits_llr: &[F],
     interleaver: &Interleaver,
     code_polynomials: &[usize],
     decoding_algo: DecodingAlgo,
 ) -> Result<Vec<Bit>, Error> {
     let mut sm = rsc::StateMachine::new(code_polynomials)?;
-    check_decoder_inputs(code_bits_llr, interleaver, &sm)?;
+    check_decoder_inputs(code_bits_llr.len(), interleaver, &sm)?;
     let num_info_bits = interleaver.length;
     if decoding_algo.num_iter() == 0 {
         return Ok(vec![Bit::Zero; num_info_bits]);
     }
     let mut ws = rsc::DecoderWorkspace::new(sm.num_states, num_info_bits, decoding_algo);
     let (top_code_bits_llr, bottom_code_bits_llr) = bcjr_inputs(code_bits_llr, interleaver, &sm);
-    let mut info_bits_llr_prior = vec![0.0; num_info_bits];
+    let mut info_bits_llr_prior = vec![F::zero(); num_info_bits];
     for i_iter in 0..decoding_algo.num_iter() {
         // Bottom RSC decoder
         if i_iter > 0 {
@@ -212,32 +212,29 @@ pub fn decoder(
 }
 
 /// Checks validity of decoder inputs.
-fn check_decoder_inputs(
-    code_bits_llr: &[f64],
+fn check_decoder_inputs<F: num::Float>(
+    code_bits_llr_len: usize,
     interleaver: &Interleaver,
-    sm: &rsc::StateMachine,
+    sm: &rsc::StateMachine<F>,
 ) -> Result<(), Error> {
     let num_info_bits = interleaver.length;
     let num_code_bits_per_rsc = (num_info_bits + sm.memory_len) * sm.num_output_bits;
     let expected_code_bits_llr_len = 2 * num_code_bits_per_rsc - num_info_bits;
-    if code_bits_llr.len() == expected_code_bits_llr_len {
+    if code_bits_llr_len == expected_code_bits_llr_len {
         Ok(())
     } else {
         Err(Error::InvalidInput(format!(
-            "For interleaver of length {}, expected {} code bit LLR values (found {})",
-            num_info_bits,
-            expected_code_bits_llr_len,
-            code_bits_llr.len()
+            "For interleaver of length {num_info_bits}, expected {expected_code_bits_llr_len} code bit LLR values (found {code_bits_llr_len})",
         )))
     }
 }
 
 /// Returns code bit LLR values to be input to top and bottom BCJR decoders.
-fn bcjr_inputs(
-    code_bits_llr: &[f64],
+fn bcjr_inputs<F: num::Float>(
+    code_bits_llr: &[F],
     interleaver: &Interleaver,
-    sm: &rsc::StateMachine,
-) -> (Vec<f64>, Vec<f64>) {
+    sm: &rsc::StateMachine<F>,
+) -> (Vec<F>, Vec<F>) {
     let num_info_bits = interleaver.length;
     let inverse_code_rate = 2 * sm.num_output_bits - 1;
     let num_code_bits_per_rsc = (num_info_bits + sm.memory_len) * sm.num_output_bits;
@@ -320,25 +317,25 @@ mod tests_of_functions {
 
     #[test]
     fn test_check_decoder_inputs() {
-        let sm = rsc::StateMachine::new(&[0o13, 0o15]).unwrap();
+        let sm = rsc::StateMachine::<f64>::new(&[0o13, 0o15]).unwrap();
         let interleaver = Interleaver::new(&[0, 3, 1, 2]).unwrap();
         // Invalid inputs
         let code_bits_llr = [
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0,
         ];
-        assert!(check_decoder_inputs(&code_bits_llr, &interleaver, &sm).is_err());
+        assert!(check_decoder_inputs(code_bits_llr.len(), &interleaver, &sm).is_err());
         let code_bits_llr = [
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0,
         ];
-        assert!(check_decoder_inputs(&code_bits_llr, &interleaver, &sm).is_err());
+        assert!(check_decoder_inputs(code_bits_llr.len(), &interleaver, &sm).is_err());
         // Valid inputs
         let code_bits_llr = [
             0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
             16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0,
         ];
-        assert!(check_decoder_inputs(&code_bits_llr, &interleaver, &sm).is_ok());
+        assert!(check_decoder_inputs(code_bits_llr.len(), &interleaver, &sm).is_ok());
     }
 
     #[test]

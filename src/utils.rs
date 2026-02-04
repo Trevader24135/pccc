@@ -36,7 +36,7 @@ use crate::Bit;
 #[must_use]
 pub fn random_bits(num_bits: usize) -> Vec<Bit> {
     let mut rng = rand::rng();
-    (0 .. num_bits)
+    (0..num_bits)
         .map(|_| {
             if rng.random_bool(0.5) {
                 Bit::One
@@ -88,9 +88,15 @@ pub fn bpsk_awgn_channel(bits: &[Bit], es_over_n0_db: f64) -> Vec<f64> {
 ///
 /// - `bits_hat`: Bits obtained by slicing the given symbols.
 #[must_use]
-pub fn bpsk_slicer(syms: &[f64]) -> Vec<Bit> {
+pub fn bpsk_slicer<F: num::Float>(syms: &[F]) -> Vec<Bit> {
     syms.iter()
-        .map(|&x| if x >= 0.0 { Bit::Zero } else { Bit::One })
+        .map(|&x| {
+            if x.is_sign_positive() {
+                Bit::Zero
+            } else {
+                Bit::One
+            }
+        })
         .collect()
 }
 
@@ -156,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_bpsk_slicer() {
-        assert!(bpsk_slicer(&[]).is_empty());
+        assert!(bpsk_slicer::<f64>(&[]).is_empty());
         assert_eq!(bpsk_slicer(&[0.0, 0.01, -0.01]), [Zero, Zero, One]);
     }
 

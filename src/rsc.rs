@@ -2,26 +2,24 @@
 
 use crate::{Bit, DecodingAlgo, Error};
 
-const INF: f64 = 1e100;
-
 /// State of an RSC encoder/decoder
 #[derive(Clone, Eq, PartialEq, Debug, Copy)]
 struct State(usize);
 
 /// Branch metric for a single state transition in an RSC decoder
 #[derive(Clone, PartialEq, Debug, Copy)]
-struct BranchMetric {
+struct BranchMetric<F: num::Float> {
     /// Component corresponding to prior LLR value for input bit
-    prior: f64,
+    prior: F,
     /// Component corresponding to systematic bit LLR value
-    systematic: f64,
+    systematic: F,
     /// Component corresponding to parity bit LLR values
-    parity: f64,
+    parity: F,
 }
 
-impl BranchMetric {
+impl<F: num::Float> BranchMetric<F> {
     /// Returns branch metric with given components.
-    fn new(prior: f64, systematic: f64, parity: f64) -> Self {
+    fn new(prior: F, systematic: F, parity: F) -> Self {
         Self {
             prior,
             systematic,
@@ -30,14 +28,20 @@ impl BranchMetric {
     }
 
     /// Returns branch metric value (sum of all components).
-    fn value(&self) -> f64 {
+    fn value(&self) -> F {
         self.prior + self.systematic + self.parity
+    }
+}
+
+impl<F: num::Float> Default for BranchMetric<F> {
+    fn default() -> Self {
+        Self::new(F::zero(), F::zero(), F::zero())
     }
 }
 
 /// State machine for RSC encoder/decoder
 #[derive(Debug)]
-pub(crate) struct StateMachine {
+pub(crate) struct StateMachine<F: num::Float> {
     /// Code polynomials
     pub(crate) code_polynomials: Vec<usize>,
     /// Memory length
@@ -49,12 +53,12 @@ pub(crate) struct StateMachine {
     /// Buffer for output bits
     output_bits: Vec<Bit>,
     /// Buffer for branch metric
-    branch_metric: BranchMetric,
+    branch_metric: BranchMetric<F>,
     /// Current state
     state: State,
 }
 
-impl StateMachine {
+impl<F: num::Float> StateMachine<F> {
     /// Returns state machine for RSC encoder/decoder corresponding to given code polynomials.
     ///
     /// # Parameters
@@ -97,7 +101,7 @@ impl StateMachine {
             num_states: 1 << (constraint_len - 1),
             num_output_bits: code_polynomials.len(),
             output_bits: vec![Bit::Zero; code_polynomials.len()],
-            branch_metric: BranchMetric::new(0.0, 0.0, 0.0),
+            branch_metric: BranchMetric::default(),
             state: State(0),
         })
     }
@@ -121,8 +125,8 @@ impl StateMachine {
         &mut self,
         state: State,
         input_bit: Bit,
-        input_bit_llr_prior: f64,
-        output_bits_llr: &[f64],
+        input_bit_llr_prior: F,
+        output_bits_llr: &[F],
     ) {
         // State transition
         self.state = state;
@@ -131,9 +135,10 @@ impl StateMachine {
         self.branch_metric.prior = bit_metric_from_llr(input_bit, input_bit_llr_prior);
         self.branch_metric.systematic =
             bit_metric_from_llr(self.output_bits[0], output_bits_llr[0]);
-        self.branch_metric.parity = 0.0;
+        self.branch_metric.parity = F::zero();
         for (&bit, &bit_llr) in self.output_bits.iter().zip(output_bits_llr.iter()).skip(1) {
-            self.branch_metric.parity += bit_metric_from_llr(bit, bit_llr);
+            self.branch_metric.parity =
+                self.branch_metric.parity + bit_metric_from_llr(bit, bit_llr);
         }
     }
 
@@ -153,18 +158,18 @@ impl StateMachine {
 
 /// Calculator for beta values
 #[derive(Debug)]
-struct BetaCalculator {
+struct BetaCalculator<F: num::Float> {
     /// Number of encoder states
     num_states: usize,
     /// Decoding algorithm to use
     decoding_algo: DecodingAlgo,
     /// Vector of beta values for all states after all information bits
-    all_beta_val: Vec<f64>,
+    all_beta_val: Vec<F>,
     /// Vector of beta values at previous time instant
-    beta_val_prev: Vec<f64>,
+    beta_val_prev: Vec<F>,
 }
 
-impl BetaCalculator {
+impl<F: num::Float> BetaCalculator<F> {
     /// Returns new calculator for beta values.
     fn new(num_states: usize, num_info_bits: usize, decoding_algo: DecodingAlgo) -> Self {
         Self {
@@ -178,25 +183,22 @@ impl BetaCalculator {
     /// Initializes beta values for all states after the last information bit.
     fn init_beta_values_after_last_info_bit(&mut self) {
         self.all_beta_val.clear();
-        self.all_beta_val.push(0.0);
-        for _ in 1 .. self.num_states {
-            self.all_beta_val.push(-INF);
-        }
+        self.all_beta_val.push(F::zero());
+        self.all_beta_val.resize(self.num_states, F::neg_infinity());
     }
 
     /// Initializes beta values for all states at previous time instant.
     fn init_previous_beta_values(&mut self) {
         self.beta_val_prev.clear();
-        for _ in 0 .. self.num_states {
-            self.beta_val_prev.push(-INF);
-        }
+        self.beta_val_prev
+            .resize(self.num_states, F::neg_infinity());
     }
 
     /// Updates beta value for a state at previous time instant.
     fn update_previous_beta_value(
         &mut self,
         state: State,
-        branch_metric: &BranchMetric,
+        branch_metric: &BranchMetric<F>,
         next_state: State,
     ) {
         let num_beta_val = self.all_beta_val.len();
@@ -213,7 +215,7 @@ impl BetaCalculator {
         let beta_val_prev0 = self.beta_val_prev[0];
         self.beta_val_prev
             .iter_mut()
-            .for_each(|x| *x -= beta_val_prev0);
+            .for_each(|x| *x = *x - beta_val_prev0);
     }
 
     /// Updates beta values for all states after the last information bit.
@@ -228,26 +230,25 @@ impl BetaCalculator {
 
     /// Deletes beta values for all states after an information bit.
     fn delete_beta_values_after_info_bit(&mut self) {
-        for _ in 0 .. self.num_states {
-            self.all_beta_val.pop();
-        }
+        self.all_beta_val
+            .truncate(self.all_beta_val.len().saturating_sub(self.num_states));
     }
 }
 
 /// Calculator for alpha values
 #[derive(Debug)]
-struct AlphaCalculator {
+struct AlphaCalculator<F: num::Float> {
     /// Number of encoder states
     num_states: usize,
     /// Decoding algorithm to use
     decoding_algo: DecodingAlgo,
     /// Vector of alpha values for all states before an information bit
-    alpha_val: Vec<f64>,
+    alpha_val: Vec<F>,
     /// Vector of alpha values at next time instant
-    alpha_val_next: Vec<f64>,
+    alpha_val_next: Vec<F>,
 }
 
-impl AlphaCalculator {
+impl<F: num::Float> AlphaCalculator<F> {
     /// Returns new calculator for alpha values.
     fn new(num_states: usize, decoding_algo: DecodingAlgo) -> Self {
         Self {
@@ -261,25 +262,22 @@ impl AlphaCalculator {
     /// Initializes alpha values for all states before an information bit.
     fn init_alpha_values_before_info_bit(&mut self) {
         self.alpha_val.clear();
-        self.alpha_val.push(0.0);
-        for _ in 1 .. self.num_states {
-            self.alpha_val.push(-INF);
-        }
+        self.alpha_val.push(F::zero());
+        self.alpha_val.resize(self.num_states, F::neg_infinity());
     }
 
     /// Initializes alpha values for all states at next time instant.
     fn init_next_alpha_values(&mut self) {
         self.alpha_val_next.clear();
-        for _ in 0 .. self.num_states {
-            self.alpha_val_next.push(-INF);
-        }
+        self.alpha_val_next
+            .resize(self.num_states, F::neg_infinity());
     }
 
     /// Updates alpha value for a state at next time instant.
     fn update_next_alpha_value(
         &mut self,
         state: State,
-        branch_metric: &BranchMetric,
+        branch_metric: &BranchMetric<F>,
         next_state: State,
     ) {
         self.alpha_val_next[next_state.0] = maxstar(
@@ -294,7 +292,7 @@ impl AlphaCalculator {
         let alpha_val_next0 = self.alpha_val_next[0];
         self.alpha_val_next
             .iter_mut()
-            .for_each(|x| *x -= alpha_val_next0);
+            .for_each(|x| *x = *x - alpha_val_next0);
     }
 
     /// Updates alpha values for all states before the next information bit.
@@ -305,22 +303,22 @@ impl AlphaCalculator {
 
 /// Workspace for decoder
 #[derive(Debug)]
-pub(crate) struct DecoderWorkspace {
+pub(crate) struct DecoderWorkspace<F: num::Float> {
     /// Calculator for beta values of all states after all information bits
-    beta_calc: BetaCalculator,
+    beta_calc: BetaCalculator<F>,
     /// Calculator for alpha values of all states before an information bit
-    alpha_calc: AlphaCalculator,
+    alpha_calc: AlphaCalculator<F>,
     /// Decoding metric for bit `Zero`
-    metric_for_zero: f64,
+    metric_for_zero: F,
     /// Decoding metric for bit `One`
-    metric_for_one: f64,
+    metric_for_one: F,
     /// Buffer for extrinsic information values for all information bits
-    pub(crate) extrinsic_info: Vec<f64>,
+    pub(crate) extrinsic_info: Vec<F>,
     /// Buffer for posterior LLR values for all information bits
-    pub(crate) llr_posterior: Vec<f64>,
+    pub(crate) llr_posterior: Vec<F>,
 }
 
-impl DecoderWorkspace {
+impl<F: num::Float> DecoderWorkspace<F> {
     /// Returns new workspace for decoder.
     pub(crate) fn new(
         num_states: usize,
@@ -330,8 +328,8 @@ impl DecoderWorkspace {
         Self {
             beta_calc: BetaCalculator::new(num_states, num_info_bits, decoding_algo),
             alpha_calc: AlphaCalculator::new(num_states, decoding_algo),
-            metric_for_zero: -INF,
-            metric_for_one: -INF,
+            metric_for_zero: F::neg_infinity(),
+            metric_for_one: F::neg_infinity(),
             extrinsic_info: Vec::with_capacity(num_info_bits),
             llr_posterior: Vec::with_capacity(num_info_bits),
         }
@@ -339,8 +337,8 @@ impl DecoderWorkspace {
 
     /// Initializes metrics for an information bit being `Zero` and `One`.
     fn init_metrics_for_zero_and_one(&mut self) {
-        self.metric_for_zero = -INF;
-        self.metric_for_one = -INF;
+        self.metric_for_zero = F::neg_infinity();
+        self.metric_for_one = F::neg_infinity();
     }
 
     /// Updates metric for an information bit being `Zero` or `One`.
@@ -348,7 +346,7 @@ impl DecoderWorkspace {
         &mut self,
         state: State,
         info_bit: Bit,
-        branch_metric: &BranchMetric,
+        branch_metric: &BranchMetric<F>,
         next_state: State,
     ) {
         let num_beta_val = self.beta_calc.all_beta_val.len();
@@ -391,7 +389,7 @@ fn constraint_length(code_polynomials: &[usize]) -> Result<usize, Error> {
     // OK to unwrap: Numbers involved will be small enough.
     let constraint_len = usize::try_from(usize::BITS - feedback_poly.leading_zeros()).unwrap();
     let two_pow_constraint_len = 1 << constraint_len;
-    if code_polynomials[1 ..]
+    if code_polynomials[1..]
         .iter()
         .any(|&x| x == 0 || x == feedback_poly || x >= two_pow_constraint_len)
     {
@@ -421,10 +419,11 @@ fn bit_from_index(bit_index: usize) -> Bit {
 }
 
 /// Returns metric for given bit corresponding to given LLR value.
-fn bit_metric_from_llr(bit: Bit, llr_val: f64) -> f64 {
+fn bit_metric_from_llr<F: num::Float>(bit: Bit, llr_val: F) -> F {
+    let two = F::one() + F::one();
     match bit {
-        Bit::Zero => llr_val / 2.0,
-        Bit::One => -llr_val / 2.0,
+        Bit::Zero => llr_val / two,
+        Bit::One => -llr_val / two,
     }
 }
 
@@ -439,9 +438,9 @@ fn bit_metric_from_llr(bit: Bit, llr_val: f64) -> f64 {
 /// - `code_bits`: Vector to which code bits from the RSC encoder must be written (any pre-existing
 ///   elements will be cleared first). The number of code bits generated by the RSC encoder is
 ///   `(info_bits.len() + state_machine.memory_len) * state_machine.num_output_bits`.
-pub(crate) fn encode(
+pub(crate) fn encode<F: num::Float>(
     info_bits: &[Bit],
-    state_machine: &mut StateMachine,
+    state_machine: &mut StateMachine<F>,
     code_bits: &mut Vec<Bit>,
 ) {
     state_machine.state = State(0);
@@ -452,7 +451,7 @@ pub(crate) fn encode(
         code_bits.extend(&state_machine.output_bits);
     }
     // Code bits corresponding to tail bits
-    for _ in 0 .. state_machine.memory_len {
+    for _ in 0..state_machine.memory_len {
         state_machine.generate_output_bits(None);
         code_bits.extend(&state_machine.output_bits);
     }
@@ -480,11 +479,11 @@ pub(crate) fn encode(
 ///
 /// Returns an error if `code_bits_llr.len()` does not equal
 /// `(info_bits_llr_prior.len() + state_machine.memory_len) * state_machine.num_output_bits`.
-pub(crate) fn decode(
-    code_bits_llr: &[f64],
-    info_bits_llr_prior: &[f64],
-    state_machine: &mut StateMachine,
-    workspace: &mut DecoderWorkspace,
+pub(crate) fn decode<F: num::Float + core::fmt::Debug>(
+    code_bits_llr: &[F],
+    info_bits_llr_prior: &[F],
+    state_machine: &mut StateMachine<F>,
+    workspace: &mut DecoderWorkspace<F>,
 ) -> Result<(), Error> {
     let expected_code_bits_llr_len =
         (info_bits_llr_prior.len() + state_machine.memory_len) * state_machine.num_output_bits;
@@ -500,24 +499,24 @@ pub(crate) fn decode(
 }
 
 /// Runs backward pass through the trellis in the BCJR decoding algorithm.
-fn run_bcjr_backward_pass(
-    code_bits_llr: &[f64],
-    info_bits_llr_prior: &[f64],
-    state_machine: &mut StateMachine,
-    workspace: &mut DecoderWorkspace,
+fn run_bcjr_backward_pass<F: num::Float>(
+    code_bits_llr: &[F],
+    info_bits_llr_prior: &[F],
+    state_machine: &mut StateMachine<F>,
+    workspace: &mut DecoderWorkspace<F>,
 ) {
     let index_of_first_tail_code_bit = info_bits_llr_prior.len() * state_machine.num_output_bits;
     // Backward iterations to compute beta values after last information bit
     workspace.beta_calc.init_beta_values_after_last_info_bit();
     for rchunk in
-        code_bits_llr[index_of_first_tail_code_bit ..].rchunks_exact(state_machine.num_output_bits)
+        code_bits_llr[index_of_first_tail_code_bit..].rchunks_exact(state_machine.num_output_bits)
     {
-        compute_previous_beta_values(rchunk, 0.0, state_machine, workspace);
+        compute_previous_beta_values(rchunk, F::zero(), state_machine, workspace);
         workspace.beta_calc.update_beta_values_after_last_info_bit();
     }
     // Backward iterations to compute beta values after all other information bits
-    for (&llr_prior, rchunk) in info_bits_llr_prior[1 ..].iter().rev().zip(
-        code_bits_llr[.. index_of_first_tail_code_bit].rchunks_exact(state_machine.num_output_bits),
+    for (&llr_prior, rchunk) in info_bits_llr_prior[1..].iter().rev().zip(
+        code_bits_llr[..index_of_first_tail_code_bit].rchunks_exact(state_machine.num_output_bits),
     ) {
         compute_previous_beta_values(rchunk, llr_prior, state_machine, workspace);
         workspace.beta_calc.save_beta_values_after_info_bit();
@@ -525,11 +524,11 @@ fn run_bcjr_backward_pass(
 }
 
 /// Runs forward pass through the trellis in the BCJR decoding algorithm.
-fn run_bcjr_forward_pass(
-    code_bits_llr: &[f64],
-    info_bits_llr_prior: &[f64],
-    state_machine: &mut StateMachine,
-    workspace: &mut DecoderWorkspace,
+fn run_bcjr_forward_pass<F: num::Float>(
+    code_bits_llr: &[F],
+    info_bits_llr_prior: &[F],
+    state_machine: &mut StateMachine<F>,
+    workspace: &mut DecoderWorkspace<F>,
 ) {
     let code_bits_llr_chunks = code_bits_llr.chunks_exact(state_machine.num_output_bits);
     // Forward iterations to compute alpha values before each information bit, and thereby to
@@ -549,17 +548,17 @@ fn run_bcjr_forward_pass(
 }
 
 /// Computes beta values for all states at previous time instant.
-fn compute_previous_beta_values(
-    code_bits_llr: &[f64],
-    input_bit_llr_prior: f64,
-    state_machine: &mut StateMachine,
-    workspace: &mut DecoderWorkspace,
+fn compute_previous_beta_values<F: num::Float>(
+    code_bits_llr: &[F],
+    input_bit_llr_prior: F,
+    state_machine: &mut StateMachine<F>,
+    workspace: &mut DecoderWorkspace<F>,
 ) {
     // Backward iteration
     workspace.beta_calc.init_previous_beta_values();
-    for state_index in 0 .. state_machine.num_states {
+    for state_index in 0..state_machine.num_states {
         let state = State(state_index);
-        for bit_index in 0 .. 2 {
+        for bit_index in 0..2 {
             let input_bit = bit_from_index(bit_index);
             state_machine.compute_branch_metric(
                 state,
@@ -578,18 +577,18 @@ fn compute_previous_beta_values(
 }
 
 /// Computes alpha values for all states at next time instant.
-fn compute_next_alpha_values(
-    code_bits_llr: &[f64],
-    input_bit_llr_prior: f64,
-    state_machine: &mut StateMachine,
-    workspace: &mut DecoderWorkspace,
+fn compute_next_alpha_values<F: num::Float>(
+    code_bits_llr: &[F],
+    input_bit_llr_prior: F,
+    state_machine: &mut StateMachine<F>,
+    workspace: &mut DecoderWorkspace<F>,
 ) {
     // Forward iteration
     workspace.alpha_calc.init_next_alpha_values();
     workspace.init_metrics_for_zero_and_one();
-    for state_index in 0 .. state_machine.num_states {
+    for state_index in 0..state_machine.num_states {
         let state = State(state_index);
-        for bit_index in 0 .. 2 {
+        for bit_index in 0..2 {
             let input_bit = bit_from_index(bit_index);
             state_machine.compute_branch_metric(
                 state,
@@ -614,28 +613,44 @@ fn compute_next_alpha_values(
 }
 
 /// Returns the maxstar of two numbers for given decoding algorithm.
-fn maxstar(x: f64, y: f64, decoding_algo: DecodingAlgo) -> f64 {
+fn maxstar<F: num::Float>(x: F, y: F, decoding_algo: DecodingAlgo) -> F {
+    let dist = if x.is_infinite() && y.is_infinite() {
+        F::zero()
+    } else {
+        (x - y).abs()
+    };
+
     x.max(y)
         + match decoding_algo {
-            DecodingAlgo::LogMAP(_) => log_map_correction_term((x - y).abs()),
-            DecodingAlgo::MaxLogMAP(_) => 0.0,
-            DecodingAlgo::LinearLogMAP(_) => linear_log_map_correction_term((x - y).abs()),
+            DecodingAlgo::LogMAP(_) => log_map_correction_term(dist),
+            DecodingAlgo::MaxLogMAP(_) => F::zero(),
+            DecodingAlgo::LinearLogMAP(_) => linear_log_map_correction_term(dist),
         }
 }
 
 /// Returns the correction term for Linear-Log-MAP decoding algorithm (Valenti & Sun, 2001).
-fn linear_log_map_correction_term(abs_diff: f64) -> f64 {
-    let thresh = 2.506_816_400_220_01;
+fn linear_log_map_correction_term<F: num::Float>(abs_diff: F) -> F {
+    let thresh = F::from(2.506_816_400_220_01).unwrap_or_else(|| {
+        panic!(
+            "Could not convert Linear-Log-MAP threshold to type `{}`",
+            core::any::type_name::<F>()
+        )
+    });
     if abs_diff > thresh {
-        0.0
+        F::zero()
     } else {
-        let slope = -0.249_041_818_917_1;
+        let slope = F::from(-0.249_041_818_917_1).unwrap_or_else(|| {
+            panic!(
+                "Could not convert Linear-Log-MAP correction term to type `{}`",
+                core::any::type_name::<F>()
+            )
+        });
         slope * (abs_diff - thresh)
     }
 }
 
 /// Returns the correction term for Log-MAP decoding algorithm.
-fn log_map_correction_term(abs_diff: f64) -> f64 {
+fn log_map_correction_term<F: num::Float>(abs_diff: F) -> F {
     (-abs_diff).exp().ln_1p()
 }
 
@@ -661,7 +676,7 @@ mod tests_of_state_machine {
 
     #[test]
     fn test_generate_output_bits() {
-        let mut state_machine = StateMachine::new(&[0o13, 0o15, 0o17]).unwrap();
+        let mut state_machine = StateMachine::<f64>::new(&[0o13, 0o15, 0o17]).unwrap();
         let correct_output_bits_for_zero = [
             [Zero, Zero, Zero],
             [Zero, Zero, Zero],
@@ -684,7 +699,7 @@ mod tests_of_state_machine {
             [One, One, Zero],
         ];
         let correct_next_state_for_one = [4, 0, 1, 5, 6, 2, 3, 7];
-        for state_index in 0 .. state_machine.num_states {
+        for state_index in 0..state_machine.num_states {
             // Input bit of `Zero`
             state_machine.state = State(state_index);
             state_machine.generate_output_bits(Some(Zero));
@@ -709,7 +724,7 @@ mod tests_of_state_machine {
             );
             // Tail bits
             state_machine.state = State(state_index);
-            for _ in 0 .. state_machine.memory_len {
+            for _ in 0..state_machine.memory_len {
                 state_machine.generate_output_bits(None);
             }
             assert_eq!(state_machine.state, State(0));
@@ -821,7 +836,7 @@ mod tests_of_state_machine {
 
     #[test]
     fn test_msb_of_next_state() {
-        let mut state_machine = StateMachine::new(&[0o13, 0o15, 0o17]).unwrap();
+        let mut state_machine = StateMachine::<f64>::new(&[0o13, 0o15, 0o17]).unwrap();
         state_machine.state = State(0);
         assert_eq!(state_machine.msb_of_next_state(Zero), Zero);
         assert_eq!(state_machine.msb_of_next_state(One), One);
@@ -850,8 +865,8 @@ mod tests_of_state_machine {
 
     #[test]
     fn test_augmented_state_index() {
-        let mut state_machine = StateMachine::new(&[0o13, 0o15, 0o17]).unwrap();
-        for state_index in 0 .. state_machine.num_states {
+        let mut state_machine = StateMachine::<f64>::new(&[0o13, 0o15, 0o17]).unwrap();
+        for state_index in 0..state_machine.num_states {
             state_machine.state = State(state_index);
             assert_eq!(state_machine.augmented_state_index(Zero), state_index);
             assert_eq!(
@@ -950,7 +965,16 @@ mod tests_of_functions {
         info_bits_llr_prior: &[f64; 4],
     ) -> [f64; 32] {
         // NOTE: Assuming code polynomials are `[0o13, 0o15, 0o17]` and Max-Log-MAP decoding
-        let bv6 = [0.0, -INF, -INF, -INF, -INF, -INF, -INF, -INF];
+        let bv6 = [
+            0.0,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
         let bv5 = correct_beta_val_prev(
             &[code_bits_llr[18], code_bits_llr[19], code_bits_llr[20]],
             0.0,
@@ -1018,7 +1042,7 @@ mod tests_of_functions {
         let p23 = (-code_bits_llr[1] + code_bits_llr[2]) / 2.0;
         let p45 = (-code_bits_llr[1] - code_bits_llr[2]) / 2.0;
         let p67 = (code_bits_llr[1] - code_bits_llr[2]) / 2.0;
-        let correct_metric_for_zero = (-INF)
+        let correct_metric_for_zero = (f64::NEG_INFINITY)
             .max(alpha_val[0] + p01 + beta_val[0])
             .max(alpha_val[1] + p01 + beta_val[4])
             .max(alpha_val[2] + p23 + beta_val[5])
@@ -1027,7 +1051,7 @@ mod tests_of_functions {
             .max(alpha_val[5] + p45 + beta_val[6])
             .max(alpha_val[6] + p67 + beta_val[7])
             .max(alpha_val[7] + p67 + beta_val[3]);
-        let correct_metric_for_one = (-INF)
+        let correct_metric_for_one = (f64::NEG_INFINITY)
             .max(alpha_val[0] - p01 + beta_val[4])
             .max(alpha_val[1] - p01 + beta_val[0])
             .max(alpha_val[2] - p23 + beta_val[1])
@@ -1046,7 +1070,16 @@ mod tests_of_functions {
         // NOTE: Assuming code polynomials are `[0o13, 0o15, 0o17]` and Max-Log-MAP decoding
         let abv = correct_all_beta_val(code_bits_llr, info_bits_llr_prior);
         // Bit 0
-        let av0 = [0.0, -INF, -INF, -INF, -INF, -INF, -INF, -INF];
+        let av0 = [
+            0.0,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ];
         let (m00, m01) = correct_metrics_for_zero_and_one(
             &av0,
             &[code_bits_llr[0], code_bits_llr[1], code_bits_llr[2]],
@@ -1113,7 +1146,7 @@ mod tests_of_functions {
     #[test]
     fn test_encode() {
         let info_bits = [Zero, One, One, Zero];
-        let mut state_machine = StateMachine::new(&[0o13, 0o15, 0o17]).unwrap();
+        let mut state_machine = StateMachine::<f64>::new(&[0o13, 0o15, 0o17]).unwrap();
         let mut code_bits = Vec::with_capacity(
             (info_bits.len() + state_machine.memory_len) * state_machine.num_output_bits,
         );
@@ -1138,7 +1171,7 @@ mod tests_of_functions {
             info_bits_llr_prior.len(),
             DecodingAlgo::MaxLogMAP(0),
         );
-        for idx in 0 .. 8 {
+        for idx in 0..8 {
             if idx > 0 {
                 info_bits_llr_prior.copy_from_slice(&workspace.extrinsic_info);
             }
