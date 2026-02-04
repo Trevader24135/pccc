@@ -10,6 +10,25 @@ pub enum Bit {
     One = 1,
 }
 
+impl From<bool> for Bit {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::One
+        } else {
+            Self::Zero
+        }
+    }
+}
+
+impl From<Bit> for bool {
+    fn from(value: Bit) -> Self {
+        match value {
+            Bit::Zero => false,
+            Bit::One => true,
+        }
+    }
+}
+
 /// Custom error type
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

@@ -30,6 +30,7 @@ serde_json = { version = "1.0.145", optional = true }
 thiserror = "2.0.17"
 
 [dev-dependencies]
+criterion = "0.5.1"
 float_eq = { version = "1.0.1", features = ["derive"] }
 
 [profile.release]
@@ -39,3 +40,8 @@ debug = true
 path = "src/bin/simulations.rs"
 name = "simulations"
 required-features = ["cli"]
+
+[[bench]]
+name = "decoding"
+path = "benchmarks/decoding.rs"
+harness = false
