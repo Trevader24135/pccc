@@ -27,7 +27,6 @@
 
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use serde::{Deserialize, Serialize};
 
 use crate::{utils, Bit, DecodingAlgo, Error, Interleaver};
 
@@ -36,7 +35,8 @@ const INVERSE_CODE_RATE: usize = 3;
 const NUM_TAIL_CODE_BITS: usize = 12;
 
 /// Parameters for LTE PCCC simulation over BPSK-AWGN channel
-#[derive(Clone, PartialEq, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SimParams {
     /// Number of information bits per block
     pub num_info_bits_per_block: u32,
@@ -139,7 +139,8 @@ impl SimParams {
 }
 
 /// Results from LTE PCCC simulation over BPSK-AWGN channel
-#[derive(Clone, PartialEq, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct SimResults {
     /// Simulation parameters
     pub params: SimParams,
@@ -344,7 +345,7 @@ pub fn bpsk_awgn_sim(params: &SimParams) -> Result<SimResults, Error> {
     params.check()?;
     let mut results = SimResults::new(params);
     while !results.sim_complete() {
-        let all_num_info_bit_errors_this_run: Vec<usize> = (0 .. params.num_blocks_per_run)
+        let all_num_info_bit_errors_this_run: Vec<usize> = (0..params.num_blocks_per_run)
             .into_par_iter()
             .map(|_| {
                 let info_bits =
@@ -403,6 +404,7 @@ pub fn bpsk_awgn_sim(params: &SimParams) -> Result<SimResults, Error> {
 /// lte::run_bpsk_awgn_sims(&all_params, "results.json")?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[allow(unused_variables, reason = "Used when serde feature is enabled")]
 pub fn run_bpsk_awgn_sims(all_params: &[SimParams], json_filename: &str) -> Result<(), Error> {
     for params in all_params {
         if params.check().is_err() {
@@ -415,7 +417,10 @@ pub fn run_bpsk_awgn_sims(all_params: &[SimParams], json_filename: &str) -> Resu
         .filter_map(|params| bpsk_awgn_sim(params).ok())
         .collect();
     summarize_all_sim_results(&all_results);
+
+    #[cfg(feature = "serde")]
     save_all_sim_results_to_file(&all_results, json_filename)?;
+
     Ok(())
 }
 
@@ -449,6 +454,7 @@ fn summarize_all_sim_results(all_results: &[SimResults]) {
 }
 
 /// Saves all simulation results to a JSON file.
+#[cfg(feature = "serde")]
 fn save_all_sim_results_to_file(
     all_results: &[SimResults],
     json_filename: &str,
@@ -475,6 +481,7 @@ fn all_sim_results_for_sim_case(all_results: &[SimResults], case: SimCase) -> Ve
 
 /// Returns all simulation results from a JSON file.
 #[allow(dead_code)]
+#[cfg(feature = "serde")]
 fn all_sim_results_from_file(json_filename: &str) -> Result<Vec<SimResults>, Error> {
     let reader = std::io::BufReader::new(std::fs::File::open(json_filename)?);
     let all_results = serde_json::from_reader(reader)?;
@@ -484,7 +491,7 @@ fn all_sim_results_from_file(json_filename: &str) -> Result<Vec<SimResults>, Err
 /// Returns quadratic permutation polynomial (QPP) interleaver for rate-1/3 LTE PCCC.
 fn interleaver(num_info_bits: usize) -> Result<Interleaver, Error> {
     let (coeff1, coeff2) = qpp_coefficients(num_info_bits)?;
-    let perm: Vec<usize> = (0 .. num_info_bits)
+    let perm: Vec<usize> = (0..num_info_bits)
         .map(|out_index| ((coeff1 + coeff2 * out_index) * out_index) % num_info_bits)
         .collect();
     Interleaver::new(&perm)
@@ -1104,19 +1111,19 @@ mod tests_of_functions {
         // Invalid input
         assert!(interleaver(32).is_err());
         // Valid input
-        for num in 0 .. 60 {
+        for num in 0..60 {
             let num_info_bits = 40 + 8 * num;
             assert!(interleaver(num_info_bits).is_ok());
         }
-        for num in 0 .. 32 {
+        for num in 0..32 {
             let num_info_bits = 528 + 16 * num;
             assert!(interleaver(num_info_bits).is_ok());
         }
-        for num in 0 .. 32 {
+        for num in 0..32 {
             let num_info_bits = 1056 + 32 * num;
             assert!(interleaver(num_info_bits).is_ok());
         }
-        for num in 0 .. 64 {
+        for num in 0..64 {
             let num_info_bits = 2112 + 64 * num;
             assert!(interleaver(num_info_bits).is_ok());
         }
@@ -1129,19 +1136,19 @@ mod tests_of_functions {
         // Invalid input
         assert!(qpp_coefficients(32).is_err());
         // Valid input
-        for num in 0 .. 60 {
+        for num in 0..60 {
             let num_info_bits = 40 + 8 * num;
             assert!(qpp_coefficients(num_info_bits).is_ok());
         }
-        for num in 0 .. 32 {
+        for num in 0..32 {
             let num_info_bits = 528 + 16 * num;
             assert!(qpp_coefficients(num_info_bits).is_ok());
         }
-        for num in 0 .. 32 {
+        for num in 0..32 {
             let num_info_bits = 1056 + 32 * num;
             assert!(qpp_coefficients(num_info_bits).is_ok());
         }
-        for num in 0 .. 64 {
+        for num in 0..64 {
             let num_info_bits = 2112 + 64 * num;
             assert!(qpp_coefficients(num_info_bits).is_ok());
         }

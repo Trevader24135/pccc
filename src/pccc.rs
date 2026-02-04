@@ -1,11 +1,10 @@
 //! Encoder and decoder for a parallel concatenated convolutional code
 
-use serde::{Deserialize, Serialize};
-
 use crate::{rsc, utils, Bit, Error, Interleaver};
 
 /// Enumeration of PCCC decoding algorithms
-#[derive(Clone, Eq, Hash, PartialEq, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Eq, Hash, PartialEq, Debug, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum DecodingAlgo {
     /// Log-MAP decoding with given number of turbo iterations
     LogMAP(u32),
@@ -113,16 +112,16 @@ pub fn encoder(
     let mut code_bits = Vec::with_capacity(2 * num_code_bits_per_rsc - num_info_bits);
     let i_first_rsc_tail_code_bit = num_info_bits * sm.num_output_bits;
     // Code bits corresponding to information bits
-    for (top_chunk, bottom_chunk) in top_code_bits[.. i_first_rsc_tail_code_bit]
+    for (top_chunk, bottom_chunk) in top_code_bits[..i_first_rsc_tail_code_bit]
         .chunks_exact(sm.num_output_bits)
-        .zip(bottom_code_bits[.. i_first_rsc_tail_code_bit].chunks_exact(sm.num_output_bits))
+        .zip(bottom_code_bits[..i_first_rsc_tail_code_bit].chunks_exact(sm.num_output_bits))
     {
         code_bits.extend(top_chunk.iter());
         code_bits.extend(bottom_chunk.iter().skip(1));
     }
     // Code bits corresponding to tail bits
-    code_bits.extend(top_code_bits[i_first_rsc_tail_code_bit ..].iter());
-    code_bits.extend(bottom_code_bits[i_first_rsc_tail_code_bit ..].iter());
+    code_bits.extend(top_code_bits[i_first_rsc_tail_code_bit..].iter());
+    code_bits.extend(bottom_code_bits[i_first_rsc_tail_code_bit..].iter());
     Ok(code_bits)
 }
 
@@ -194,7 +193,7 @@ pub fn decoder(
     let mut ws = rsc::DecoderWorkspace::new(sm.num_states, num_info_bits, decoding_algo);
     let (top_code_bits_llr, bottom_code_bits_llr) = bcjr_inputs(code_bits_llr, interleaver, &sm);
     let mut info_bits_llr_prior = vec![0.0; num_info_bits];
-    for i_iter in 0 .. decoding_algo.num_iter() {
+    for i_iter in 0..decoding_algo.num_iter() {
         // Bottom RSC decoder
         if i_iter > 0 {
             interleaver.interleave(&ws.extrinsic_info, &mut info_bits_llr_prior)?;
@@ -245,22 +244,22 @@ fn bcjr_inputs(
     let mut top_code_bits_llr = Vec::with_capacity(num_code_bits_per_rsc);
     let mut bottom_code_bits_llr = Vec::with_capacity(num_code_bits_per_rsc);
     // Information bits
-    for k in 0 .. num_info_bits {
+    for k in 0..num_info_bits {
         let i_top = k * inverse_code_rate;
-        top_code_bits_llr.extend_from_slice(&code_bits_llr[i_top .. i_top + sm.num_output_bits]);
+        top_code_bits_llr.extend_from_slice(&code_bits_llr[i_top..i_top + sm.num_output_bits]);
         let i_bottom = interleaver.all_in_index_given_out_index[k] * inverse_code_rate;
         bottom_code_bits_llr.push(code_bits_llr[i_bottom]);
         bottom_code_bits_llr.extend_from_slice(
-            &code_bits_llr[i_top + sm.num_output_bits .. i_top + inverse_code_rate],
+            &code_bits_llr[i_top + sm.num_output_bits..i_top + inverse_code_rate],
         );
     }
     // Tail bits
     top_code_bits_llr.extend_from_slice(
         &code_bits_llr[num_info_bits * inverse_code_rate
-            .. num_info_bits * inverse_code_rate + sm.memory_len * sm.num_output_bits],
+            ..num_info_bits * inverse_code_rate + sm.memory_len * sm.num_output_bits],
     );
     bottom_code_bits_llr.extend_from_slice(
-        &code_bits_llr[num_info_bits * inverse_code_rate + sm.memory_len * sm.num_output_bits ..],
+        &code_bits_llr[num_info_bits * inverse_code_rate + sm.memory_len * sm.num_output_bits..],
     );
     (top_code_bits_llr, bottom_code_bits_llr)
 }
